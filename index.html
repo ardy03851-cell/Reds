@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="theme-color" content="#08080a" />
 <title>PULSE // RED</title>
-<link rel="apple-touch-icon" href="mainassets/icon.png" />
-<link rel="icon" href="mainassets/icon.png" />
+<link rel="apple-touch-icon" href="mainassets/icon.svg" />
+<link rel="icon" href="mainassets/icon.svg" />
 <style>
 /* ============================================================
    PULSE // RED  —  stylesheet
@@ -47,7 +47,7 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
 #menu{background:#050507;}
 #menuBg{
   position:absolute;inset:0;
-  background-image:url('mainassets/bg.png');
+  background-image:url('mainassets/IMG_2105.png');
   background-size:cover;background-position:center;
   background-color:#0a0407;
   transform:scale(1.06);
@@ -176,7 +176,10 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
   transform:translateX(8px);
   box-shadow:0 0 40px rgba(255,31,61,.12), inset 0 0 60px rgba(255,31,61,.05);
 }
-.card-info{position:relative;z-index:2;max-width:44%;min-width:0;}
+.track-no{position:relative;z-index:2;width:34px;margin-right:18px;font-size:10px;letter-spacing:.18em;color:rgba(255,255,255,.24);font-variant-numeric:tabular-nums;}
+.card-info{position:relative;z-index:2;max-width:55%;min-width:0;}
+.card::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,rgba(255,31,61,.07) 48%,transparent 100%);transform:translateX(-120%);transition:transform .8s cubic-bezier(.16,1,.3,1);pointer-events:none;}
+.card:hover::after,.card.previewing::after{transform:translateX(120%);}
 .card-title{
   font-size:clamp(15px,2.1vw,21px);font-weight:800;letter-spacing:.01em;text-transform:uppercase;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -429,26 +432,38 @@ function fadeAudio(a, to, ms) {
      2. Directory listing HTML (nginx / apache / python http.server)
    Falls back to the built-in generated track if nothing is found.
    ============================================================ */
+const ASSET_FALLBACKS = {
+  'mainassets/': ['Y2Mate.is - Third Rail.mp3'],
+  'music/': [
+    'Y2Mate.is - MV ABM -  Signaling   .mp3',
+    'Y2Mate.is - Rose feat Ember Amane.mp3'
+  ]
+};
+
+function assetUrl(dir, name) {
+  return dir + encodeURIComponent(String(name));
+}
+
 async function probe(url) {
-  try { const r = await fetch(url, { method: 'HEAD' }); return r.ok; }
+  try { const r = await fetch(url, { method: 'HEAD', cache: 'no-store' }); return r.ok; }
   catch (e) { return false; }
 }
 
 async function listDir(dir) {
-  // 1. manifest
+  // Static hosts do not expose directory listings, so manifest.json is the primary source.
   try {
     const r = await fetch(dir + 'manifest.json', { cache: 'no-store' });
     if (r.ok) {
       const j = await r.json();
       const arr = Array.isArray(j) ? j : (j && j.files) || [];
       const out = arr
-        .map(f => (typeof f === 'string' ? f : (f && f.file) || ''))
+        .map(f => (typeof f === 'string' ? f : (f && (f.file || f.name)) || ''))
         .filter(f => AUDIO_RE.test(f));
-      if (out.length) return out;
+      if (out.length) return Array.from(new Set(out));
     }
   } catch (e) {}
 
-  // 2. directory index
+  // Directory indexes are only available on some local/dev servers.
   try {
     const r = await fetch(dir, { cache: 'no-store' });
     if (r.ok) {
@@ -468,7 +483,9 @@ async function listDir(dir) {
     }
   } catch (e) {}
 
-  return [];
+  // Last-resort known-file list keeps the included package working even when
+  // the host blocks directory listing and does not serve manifest.json yet.
+  return (ASSET_FALLBACKS[dir] || []).filter(Boolean);
 }
 
 /* ============================================================
@@ -494,11 +511,11 @@ async function initTitleMusic() {
   let url = null;
   const files = await listDir('mainassets/');
   if (files.length) {
-    url = 'mainassets/' + encodeURIComponent(files[0]);
+    url = assetUrl('mainassets/', files[0]);
   } else {
     const candidates = ['theme.mp3','title.mp3','menu.mp3','main.mp3','music.mp3','bgm.mp3','bg.mp3','soundtrack.mp3'];
     for (const c of candidates) {
-      if (await probe('mainassets/' + c)) { url = 'mainassets/' + c; break; }
+      if (await probe(assetUrl('mainassets/', c))) { url = assetUrl('mainassets/', c); break; }
     }
   }
   if (!url) return;
@@ -884,6 +901,39 @@ function prettyName(fn) {
   return fn.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function fallbackChart(duration, seed = 1337) {
+  const safeDuration = Math.max(4, Number(duration) || 4);
+  const rnd = mulberry32(seed >>> 0);
+  const notes = [];
+  const step = 0.48;
+  let lastLane = -1;
+  for (let t = 1.2; t < safeDuration - 0.55; t += step) {
+    if (rnd() < 0.18) continue;
+    let lane = Math.floor(rnd() * 4);
+    if (lane === lastLane && rnd() < 0.65) lane = (lane + 1 + Math.floor(rnd() * 3)) % 4;
+    lastLane = lane;
+    notes.push({ t, lane });
+    if (rnd() < 0.12 && t + 0.24 < safeDuration - 0.3) {
+      notes.push({ t: t + 0.24, lane: (lane + 2) % 4 });
+    }
+  }
+  const density = notes.length / safeDuration;
+  const difficulty = density < 1.6 ? 'EASY' : density < 2.6 ? 'NORMAL' : density < 3.8 ? 'HARD' : 'EXTREME';
+  return { notes, duration: safeDuration, density, difficulty };
+}
+
+function getAudioDuration(url) {
+  return new Promise(resolve => {
+    const a = new Audio();
+    let done = false;
+    const finish = value => { if (done) return; done = true; a.removeAttribute('src'); a.load(); resolve(Number.isFinite(value) ? value : 0); };
+    a.preload = 'metadata';
+    a.addEventListener('loadedmetadata', () => finish(a.duration), { once: true });
+    a.addEventListener('error', () => finish(0), { once: true });
+    a.src = url;
+  });
+}
+
 function ensureAnalysis(song) {
   if (song.promise) return song.promise;
   song.promise = (async () => {
@@ -905,8 +955,20 @@ function ensureAnalysis(song) {
       song.density = chart.density;
       song.status = 'ready';
     } catch (e) {
-      console.warn('analyze failed', song.title, e);
-      song.status = 'error';
+      console.warn('waveform analysis unavailable for', song.title, e);
+      // Some static/file hosts allow <audio> but block fetch()/decodeAudioData().
+      // Keep the track playable and build a lightweight deterministic chart instead.
+      const duration = await getAudioDuration(song.url);
+      if (duration > 0) {
+        song.chart = fallbackChart(duration, song.id.length * 997 + song.title.length * 31);
+        song.duration = song.chart.duration;
+        song.difficulty = song.chart.difficulty;
+        song.noteCount = song.chart.notes.length;
+        song.density = song.chart.density;
+        song.status = 'ready';
+      } else {
+        song.status = 'error';
+      }
     }
     song.buffer = null;
     updateCard(song);
@@ -997,7 +1059,7 @@ function renderSongs() {
   if (!songs.length) {
     const d = document.createElement('div');
     d.className = 'empty-note';
-    d.textContent = 'No tracks found. Add .mp3 files to the /music folder (or a music/manifest.json) and reload.';
+    d.textContent = 'No tracks found. Add audio files to /music or update music/manifest.json.';
     list.appendChild(d);
     return;
   }
@@ -1006,6 +1068,7 @@ function renderSongs() {
     const el = document.createElement('div');
     el.className = 'card';
     el.innerHTML =
+      '<div class="track-no">' + String(songs.indexOf(s) + 1).padStart(2, '0') + '</div>' +
       '<div class="vinyl"></div>' +
       '<div class="card-info">' +
         '<div class="card-title">' + esc(s.title) + '</div>' +
@@ -1525,13 +1588,17 @@ async function boot() {
 
   // icon (hide gracefully if missing)
   const icon = $('#menuIcon');
-  icon.addEventListener('error', () => icon.classList.add('hidden'));
+  icon.addEventListener('error', () => {
+    icon.src = 'mainassets/IMG_2105.png';
+    icon.classList.remove('hidden');
+  });
+  icon.src = 'mainassets/icon.svg';
 
   // background image fallback
   const bgEl = $('#menuBg');
   const testImg = new Image();
   testImg.onerror = () => { bgEl.style.backgroundImage = 'none'; };
-  testImg.src = 'mainassets/bg.png';
+  testImg.src = 'mainassets/IMG_2105.png';
 
   // title music
   initTitleMusic().catch(() => {});
@@ -1542,7 +1609,7 @@ async function boot() {
     songs.push({
       id: 'f' + songs.length,
       title: prettyName(n),
-      url: 'music/' + encodeURIComponent(n),
+      url: assetUrl('music/', n),
       status: 'pending'
     });
   });
